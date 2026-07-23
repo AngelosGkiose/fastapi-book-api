@@ -30,3 +30,15 @@ def update_book(book_id: int, updated_book: Book):
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Book not found"
     )
+
+@app.delete("/books/{book_id}",status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(book_id: int):
+    for index,book in enumerate(books):
+        if book.id==book_id :
+            books.pop(index)
+            return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Book not found")
+
+@app.get("/books")
+def get_books():
+    return books
