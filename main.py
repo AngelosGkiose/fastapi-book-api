@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI,HTTPException,status
 from pydantic import BaseModel
 
@@ -12,14 +13,20 @@ class Book(BaseModel):
 books = []
 
 
-@app.post("/books", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/books",
+    status_code=status.HTTP_201_CREATED,
+    response_model=Book
+)
 def create_book(book: Book):
     books.append(book)
     return book
 
 
-
-@app.put("/books/{book_id}")
+@app.put(
+    "/books/{book_id}",
+    response_model=Book
+)
 def update_book(book_id: int, updated_book: Book):
     for index, book in enumerate(books):
         if book.id == book_id:
@@ -39,6 +46,6 @@ def delete_book(book_id: int):
             return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Book not found")
 
-@app.get("/books")
+@app.get("/books",response_model=list[Book])
 def get_books():
     return books
