@@ -1,9 +1,9 @@
 
 from fastapi import FastAPI,HTTPException,status, Depends,Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
-from models import BookModel
+from models import BookModel, CategoryModel
 from sqlalchemy import or_
 
 Base.metadata.create_all(bind=engine)
@@ -17,31 +17,75 @@ def get_db():
 
 app = FastAPI()
 class BookCreate(BaseModel):
-    title: str
-    author: str
-    pages: int
+    title: str = Field(min_length=1, max_length=200)
+    author: str = Field(min_length=1, max_length=100)
+    pages: int = Field(gt=0, le=10000)
+    category_id: int = Field(gt=0)
 
+class CategoryResponse(BaseModel):
+    id: int
+    name: str
 
+    class Config:
+        from_attributes = True
 class BookResponse(BaseModel):
     id: int
     title: str
     author: str
     pages: int
+    category_id: int
+    category: CategoryResponse
 
     model_config = {
         "from_attributes": True
     }
+class CategoryCreate(BaseModel):
+    name: str
 
+
+@app.post("/categories",response_model=CategoryResponse,status_code=status.HTTP_201_CREATED)
+def create_new_category(category: CategoryCreate,db: Session = Depends(get_db)):
+    existing_category = (
+        db.query(CategoryModel)
+        .filter(CategoryModel.name == category.name)
+        .first()
+    )
+    if existing_category:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Category already exists"
+        )
+    new_category=CategoryModel(name=category.name)
+    db.add(new_category)
+    db.commit()
+    db.refresh(new_category)
+    return new_category
+
+@app.get("/categories",response_model=list[CategoryResponse],status_code=status.HTTP_200_OK)
+def get_categories(skip: int = 0,limit: int = 100,db: Session = Depends(get_db)):
+    categories=db.query(CategoryModel).offset(skip).limit(limit).all()
+    return categories
 
 @app.post("/books",status_code=status.HTTP_201_CREATED, response_model=BookResponse)
 def create_book(
     book: BookCreate,
     db: Session = Depends(get_db)
 ):
+    category = (
+        db.query(CategoryModel)
+        .filter(CategoryModel.id == book.category_id)
+        .first()
+    )
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found"
+        )
     new_book = BookModel(
         title=book.title,
         author=book.author,
-        pages=book.pages
+        pages=book.pages,
+        category_id=book.category_id
     )
 
     db.add(new_book)
@@ -51,14 +95,18 @@ def create_book(
     return new_book
 
 
-@app.put("/books/{book_id}",response_model=BookResponse)
+@app.put("/books/{book_id}",response_model=BookResponse,status_code=status.HTTP_200_OK)
 def update_book(book_id: int, updated_book: BookCreate,db: Session = Depends(get_db)):
     book=db.query(BookModel).filter(BookModel.id == book_id).first()
     if not book:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    category = ( db.query(CategoryModel).filter(CategoryModel.id == updated_book.category_id).first())
+    if not category:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Category not found")
     book.title = updated_book.title
     book.author = updated_book.author
     book.pages = updated_book.pages
+    book.category_id = updated_book.category_id
     db.commit()
     db.refresh(book)
     return book
