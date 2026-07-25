@@ -24,6 +24,7 @@ class BookModel(Base):
         Integer,
         nullable=False
     )
+    published_year = Column(Integer, nullable=True)
     category_id = Column(
         Integer,
         ForeignKey("categories.id"),

@@ -197,3 +197,8 @@ def filter_books(title: str | None = None,author: str | None = None,min_pages: i
         query = query.filter(BookModel.pages >= min_pages)
     books=query.all()
     return books
+
+@app.get("/books/category/{category_name}",response_model=list[BookResponse],status_code=status.HTTP_200_OK)
+def get_books_by_category(category_name: str,db: Session = Depends(get_db)):
+    books=db.query(BookModel).join(CategoryModel).filter(CategoryModel.name==category_name).all()
+    return books
