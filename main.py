@@ -1,12 +1,13 @@
 
 from fastapi import FastAPI,HTTPException,status, Depends,Query
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import BookModel, CategoryModel, UserModel
 from sqlalchemy import or_
 
-from security import hash_password
+from security import hash_password, verify_password
 
 Base.metadata.create_all(bind=engine)
 def get_db():
@@ -263,3 +264,42 @@ def register_user(
     db.refresh(new_user)
 
     return new_user
+def authenticate_user(
+        username: str,
+        password: str,
+        db: Session
+):
+    user = (
+        db.query(UserModel)
+        .filter(UserModel.username == username)
+        .first()
+    )
+
+    if user is None:
+        return None
+
+    if not verify_password(password, user.hashed_password):
+        return None
+
+    return user
+@app.post("/login")
+def login(
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: Session = Depends(get_db)
+):
+    user = authenticate_user(
+        username=form_data.username,
+        password=form_data.password,
+        db=db
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password."
+        )
+
+    return {
+        "message": "Login successful",
+        "username": user.username
+    }
