@@ -1,10 +1,12 @@
 
 from fastapi import FastAPI,HTTPException,status, Depends,Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
-from models import BookModel, CategoryModel
+from models import BookModel, CategoryModel, UserModel
 from sqlalchemy import or_
+
+from security import hash_password
 
 Base.metadata.create_all(bind=engine)
 def get_db():
@@ -21,6 +23,20 @@ class BookCreate(BaseModel):
     author: str = Field(min_length=1, max_length=100)
     pages: int = Field(gt=0, le=10000)
     category_id: int = Field(gt=0)
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+
+    class Config:
+        from_attributes = True
 
 class CategoryResponse(BaseModel):
     id: int
@@ -202,3 +218,48 @@ def filter_books(title: str | None = None,author: str | None = None,min_pages: i
 def get_books_by_category(category_name: str,db: Session = Depends(get_db)):
     books=db.query(BookModel).join(CategoryModel).filter(CategoryModel.name==category_name).all()
     return books
+@app.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def register_user(
+    user: UserCreate,
+    db: Session = Depends(get_db)
+):
+    existing_username = (
+        db.query(UserModel)
+        .filter(UserModel.username == user.username)
+        .first()
+    )
+
+    if existing_username is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username already exists."
+        )
+
+    existing_email = (
+        db.query(UserModel)
+        .filter(UserModel.email == user.email)
+        .first()
+    )
+
+    if existing_email is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already exists."
+        )
+
+    new_user = UserModel(
+        username=user.username,
+        email=user.email,
+        hashed_password=hash_password(user.password),
+        role="user"
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return new_user
