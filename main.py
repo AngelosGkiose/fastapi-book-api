@@ -1,13 +1,21 @@
 
 from fastapi import FastAPI,HTTPException,status, Depends,Query
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import (
+    OAuth2PasswordBearer,
+    OAuth2PasswordRequestForm
+)
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import BookModel, CategoryModel, UserModel
 from sqlalchemy import or_
 
-from security import hash_password, verify_password
+from security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    decode_access_token
+)
 
 Base.metadata.create_all(bind=engine)
 def get_db():
@@ -19,6 +27,43 @@ def get_db():
         db.close()
 
 app = FastAPI()
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="login"
+)
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise credentials_exception
+
+    username = payload.get("sub")
+
+    if username is None:
+        raise credentials_exception
+
+    user = (
+        db.query(UserModel)
+        .filter(UserModel.username == username)
+        .first()
+    )
+
+    if user is None:
+        raise credentials_exception
+
+    return user
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
 class BookCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     author: str = Field(min_length=1, max_length=100)
@@ -282,24 +327,55 @@ def authenticate_user(
         return None
 
     return user
-@app.post("/login")
-def login(
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        db: Session = Depends(get_db)
+@app.post(
+    "/login",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK
+)
+def login_user(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
 ):
-    user = authenticate_user(
-        username=form_data.username,
-        password=form_data.password,
-        db=db
+    user = (
+        db.query(UserModel)
+        .filter(UserModel.username == form_data.username)
+        .first()
     )
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password."
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"}
         )
 
+    if not verify_password(
+        form_data.password,
+        user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    access_token = create_access_token(
+        data={
+            "sub": user.username
+        }
+    )
+
     return {
-        "message": "Login successful",
-        "username": user.username
+        "access_token": access_token,
+        "token_type": "bearer"
     }
+
+@app.get(
+    "/users/me",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK
+)
+def get_logged_in_user(
+    current_user: UserModel = Depends(get_current_user)
+):
+    return current_user
