@@ -2,6 +2,7 @@ from database import SessionLocal
 from models import UserModel
 from security import hash_password
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 def create_admin():
@@ -19,7 +20,10 @@ def create_admin():
     try:
         existing_admin = (
             db.query(UserModel)
-            .filter(UserModel.username == "admin")
+            .filter(
+                (UserModel.username == username)
+                | (UserModel.email == email)
+            )
             .first()
         )
 
