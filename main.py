@@ -5,6 +5,7 @@ from fastapi.security import (
     OAuth2PasswordRequestForm
 )
 from pydantic import BaseModel, Field, EmailStr
+from logger import logger
 from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import BookModel, CategoryModel, UserModel
@@ -193,7 +194,12 @@ def create_book(
         .first()
     )
 
-    if not category:
+    if category is None:
+        logger.warning(
+            "Book creation failed: category_id=%s not found",
+            book.category_id
+        )
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Category not found"
@@ -203,13 +209,19 @@ def create_book(
         title=book.title,
         author=book.author,
         pages=book.pages,
-        category_id=book.category_id,
-        published_year=book.published_year
+        category_id=book.category_id
     )
 
     db.add(new_book)
     db.commit()
     db.refresh(new_book)
+
+    logger.info(
+        "Book created: book_id=%s title=%s admin_id=%s",
+        new_book.id,
+        new_book.title,
+        current_admin.id
+    )
 
     return new_book
 
@@ -256,6 +268,16 @@ def update_book(
 
     db.commit()
     db.refresh(book)
+    db.commit()
+    db.refresh(book)
+
+    logger.info(
+        "Book updated: book_id=%s admin_id=%s",
+        book.id,
+        current_admin.id
+    )
+
+    return book
 
     return book
 
@@ -274,14 +296,28 @@ def delete_book(
         .first()
     )
 
-    if not book:
+    if book is None:
+        logger.warning(
+            "Book deletion failed: book_id=%s not found",
+            book_id
+        )
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Book not found"
         )
 
+    book_title = book.title
+
     db.delete(book)
     db.commit()
+
+    logger.info(
+        "Book deleted: book_id=%s title=%s admin_id=%s",
+        book_id,
+        book_title,
+        current_admin.id
+    )
 
     return
 
@@ -383,6 +419,11 @@ def register_user(
     )
 
     if existing_username is not None:
+        logger.warning(
+            "Registration failed: username already exists: %s",
+            user.username
+        )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username already exists."
@@ -395,6 +436,10 @@ def register_user(
     )
 
     if existing_email is not None:
+        logger.warning(
+            "Registration failed: email already exists"
+        )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already exists."
@@ -410,6 +455,12 @@ def register_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    logger.info(
+        "User registered successfully: user_id=%s username=%s",
+        new_user.id,
+        new_user.username
+    )
 
     return new_user
 def authenticate_user(
@@ -446,6 +497,11 @@ def login_user(
     )
 
     if user is None:
+        logger.warning(
+            "Failed login attempt for username=%s",
+            form_data.username
+        )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
@@ -456,6 +512,12 @@ def login_user(
         data={
             "sub": user.username
         }
+    )
+
+    logger.info(
+        "User logged in successfully: user_id=%s username=%s",
+        user.id,
+        user.username
     )
 
     return {
