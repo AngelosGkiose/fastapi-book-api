@@ -109,6 +109,7 @@ class BookResponse(BaseModel):
     author: str
     pages: int
     category_id: int
+    published_year: int
     category: CategoryResponse
 
     model_config = {
