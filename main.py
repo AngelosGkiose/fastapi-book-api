@@ -60,6 +60,18 @@ def get_current_user(
         raise credentials_exception
 
     return user
+
+def get_current_admin(
+    current_user: UserModel = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+
+    return current_user
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -69,6 +81,7 @@ class BookCreate(BaseModel):
     author: str = Field(min_length=1, max_length=100)
     pages: int = Field(gt=0, le=10000)
     category_id: int = Field(gt=0)
+    published_year:int = Field(gt=0)
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50)
@@ -105,22 +118,36 @@ class CategoryCreate(BaseModel):
     name: str
 
 
-@app.post("/categories",response_model=CategoryResponse,status_code=status.HTTP_201_CREATED)
-def create_new_category(category: CategoryCreate,db: Session = Depends(get_db)):
+@app.post(
+    "/categories",
+    response_model=CategoryResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_new_category(
+    category: CategoryCreate,
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
+):
     existing_category = (
         db.query(CategoryModel)
         .filter(CategoryModel.name == category.name)
         .first()
     )
+
     if existing_category:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Category already exists"
         )
-    new_category=CategoryModel(name=category.name)
+
+    new_category = CategoryModel(
+        name=category.name
+    )
+
     db.add(new_category)
     db.commit()
     db.refresh(new_category)
+
     return new_category
 
 @app.get("/categories",response_model=list[CategoryResponse],status_code=status.HTTP_200_OK)
@@ -128,26 +155,34 @@ def get_categories(skip: int = 0,limit: int = 100,db: Session = Depends(get_db))
     categories=db.query(CategoryModel).offset(skip).limit(limit).all()
     return categories
 
-@app.post("/books",status_code=status.HTTP_201_CREATED, response_model=BookResponse)
+@app.post(
+    "/books",
+    status_code=status.HTTP_201_CREATED,
+    response_model=BookResponse
+)
 def create_book(
     book: BookCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
 ):
     category = (
         db.query(CategoryModel)
         .filter(CategoryModel.id == book.category_id)
         .first()
     )
+
     if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Category not found"
         )
+
     new_book = BookModel(
         title=book.title,
         author=book.author,
         pages=book.pages,
-        category_id=book.category_id
+        category_id=book.category_id,
+        published_year=book.published_year
     )
 
     db.add(new_book)
@@ -156,30 +191,76 @@ def create_book(
 
     return new_book
 
+@app.put(
+    "/books/{book_id}",
+    response_model=BookResponse,
+    status_code=status.HTTP_200_OK
+)
+def update_book(
+    book_id: int,
+    updated_book: BookCreate,
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
+):
+    book = (
+        db.query(BookModel)
+        .filter(BookModel.id == book_id)
+        .first()
+    )
 
-@app.put("/books/{book_id}",response_model=BookResponse,status_code=status.HTTP_200_OK)
-def update_book(book_id: int, updated_book: BookCreate,db: Session = Depends(get_db)):
-    book=db.query(BookModel).filter(BookModel.id == book_id).first()
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
-    category = ( db.query(CategoryModel).filter(CategoryModel.id == updated_book.category_id).first())
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book not found"
+        )
+
+    category = (
+        db.query(CategoryModel)
+        .filter(CategoryModel.id == updated_book.category_id)
+        .first()
+    )
+
     if not category:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Category not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found"
+        )
+
     book.title = updated_book.title
     book.author = updated_book.author
     book.pages = updated_book.pages
     book.category_id = updated_book.category_id
+    book.published_year=updated_book.published_year
+
     db.commit()
     db.refresh(book)
+
     return book
 
-@app.delete("/books/{book_id}",status_code=status.HTTP_204_NO_CONTENT)
-def delete_book(book_id: int,db: Session = Depends(get_db)):
-    book=db.query(BookModel).filter(BookModel.id == book_id).first()
+@app.delete(
+    "/books/{book_id}",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_book(
+    book_id: int,
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
+):
+    book = (
+        db.query(BookModel)
+        .filter(BookModel.id == book_id)
+        .first()
+    )
+
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book not found"
+        )
+
     db.delete(book)
     db.commit()
+
     return
 
 @app.get(
@@ -336,23 +417,13 @@ def login_user(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    user = (
-        db.query(UserModel)
-        .filter(UserModel.username == form_data.username)
-        .first()
+    user = authenticate_user(
+        username=form_data.username,
+        password=form_data.password,
+        db=db
     )
 
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-
-    if not verify_password(
-        form_data.password,
-        user.hashed_password
-    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
@@ -369,7 +440,6 @@ def login_user(
         "access_token": access_token,
         "token_type": "bearer"
     }
-
 @app.get(
     "/users/me",
     response_model=UserResponse,
