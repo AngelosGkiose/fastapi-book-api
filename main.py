@@ -9,13 +9,23 @@ from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import BookModel, CategoryModel, UserModel
 from sqlalchemy import or_
+from typing import Literal
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from exception_handlers import (
+    http_exception_handler,
+    validation_exception_handler
+)
 from security import (
     hash_password,
     verify_password,
     create_access_token,
     decode_access_token
 )
+
+
+
 
 Base.metadata.create_all(bind=engine)
 def get_db():
@@ -27,6 +37,15 @@ def get_db():
         db.close()
 
 app = FastAPI()
+app.add_exception_handler(
+    StarletteHTTPException,
+    http_exception_handler
+)
+
+app.add_exception_handler(
+    RequestValidationError,
+    validation_exception_handler
+)
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login"
 )
@@ -119,6 +138,8 @@ class CategoryCreate(BaseModel):
     name: str
 
 
+class UserRoleUpdate(BaseModel):
+    role: Literal["user", "admin"]
 @app.post(
     "/categories",
     response_model=CategoryResponse,
@@ -450,3 +471,34 @@ def get_logged_in_user(
     current_user: UserModel = Depends(get_current_user)
 ):
     return current_user
+
+
+@app.put(
+    "/users/{user_id}/role",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK
+)
+def update_user_role(
+    user_id: int,
+    role_update: UserRoleUpdate,
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
+):
+    user = (
+        db.query(UserModel)
+        .filter(UserModel.id == user_id)
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    user.role = role_update.role
+
+    db.commit()
+    db.refresh(user)
+
+    return user
