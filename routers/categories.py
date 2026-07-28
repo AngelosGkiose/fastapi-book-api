@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from dependencies.authentication import get_current_admin
+from dependencies.authentication import (
+    get_current_admin,
+    get_current_user
+)
 from dependencies.db import get_db
 from models import CategoryModel, UserModel
 from schemas.categories import (
@@ -51,12 +54,14 @@ def create_category(
 
 @router.get(
     "",
-    response_model=list[CategoryResponse]
+    response_model=list[CategoryResponse],
+    status_code=status.HTTP_200_OK
 )
 def get_categories(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     return (
         db.query(CategoryModel)

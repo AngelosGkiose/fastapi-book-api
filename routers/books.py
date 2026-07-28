@@ -7,7 +7,10 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from dependencies.authentication import get_current_admin
+from dependencies.authentication import (
+    get_current_admin,
+    get_current_user
+)
 from dependencies.db import get_db
 from logger import logger
 from models import BookModel, CategoryModel, UserModel
@@ -55,7 +58,8 @@ def get_books(
         ge=1,
         le=100
     ),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     query = db.query(BookModel)
 
@@ -122,7 +126,8 @@ def get_books(
 )
 def get_book_by_id(
     book_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     book = (
         db.query(BookModel)
